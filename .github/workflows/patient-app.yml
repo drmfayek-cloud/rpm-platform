@@ -1,0 +1,56 @@
+name: Patient app (Android)
+
+on:
+  push:
+    branches: [main]
+    paths: ["apps/patient_app/**", ".github/workflows/patient-app.yml"]
+  pull_request:
+    paths: ["apps/patient_app/**", ".github/workflows/patient-app.yml"]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    defaults:
+      run:
+        working-directory: apps/patient_app
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Generate Android project
+        run: flutter create --platforms=android --org health.rpm --project-name patient_app .
+
+      - name: Add HC03 integration
+        run: python3 tool/patch_android.py
+
+      - run: flutter pub get
+      - run: flutter analyze --no-fatal-infos
+      - run: flutter test
+
+      - name: Build APK (HC03)
+        run: |
+          flutter build apk --release --build-number=${{ github.run_number }}
+          mkdir -p ../../out
+          cp build/app/outputs/flutter-apk/app-release.apk ../../out/rpm-patient-hc03-${{ github.run_number }}.apk
+
+      - name: Build APK (simulator, no device needed)
+        run: |
+          flutter build apk --release --build-number=${{ github.run_number }} --dart-define=DEVICE=simulator
+          cp build/app/outputs/flutter-apk/app-release.apk ../../out/rpm-patient-simulator-${{ github.run_number }}.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: patient-app-apks-${{ github.run_number }}
+          path: out/*.apk
+          retention-days: 30
